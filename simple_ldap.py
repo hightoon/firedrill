@@ -94,10 +94,9 @@ def get_manager_verbose(uid):
     if res:
         return res[0][1]
 
-def get_user_by_uid(uid, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street']):
+def get_user_by_uid(uid, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'displayName']):
     l = ldap.initialize(server)
     try: 
-        #l.start_tls_s()
         res = l.simple_bind_s(dn, pw)
         print 'result: ', res
     except ldap.INVALID_CREDENTIALS:
@@ -111,9 +110,9 @@ def get_user_by_uid(uid, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'ns
         sys.exit()
     finally:
         if attrs:
-            res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uidNumber=%s'%(uidnum,), attrs)
+            res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uid=%s'%(uid,), attrs)
         else:
-            res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uidNumber=%s'%(uidnum,))
+            res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uid=%s'%(uid,))
             print res
         return res
 
@@ -211,11 +210,19 @@ def get_managers(uid, users):
             user = u
             break
     for u in users:
-        if u['uid'] == user['nsnManagerAccountName']
+        if u['uid'] == user['nsnManagerAccountName']:
             lm = u
             break
     if lm is None:
-        
+        # not located in hz
+        lm = 'global'
+    else:
+        for u in users:
+            if u['uid'] == lm['nsnManagerAccountName']:
+                gm = u
+            else:
+                gm = 'global'
+    return user, lm, gm
             
 
 def save_user_info(users):
@@ -249,25 +256,24 @@ def save_user_as_groups(users):
     print len(users)
     for user in users:
         if user['nsnApprovalLimit'] == '0':
-            n5grps.setdefault(user['nsnManagerAccountName'], [])
-            n5grps[user['nsnManagerAccountName']].append(user)
-            lm, gm = get_managers(user['nsnManagerAccountName'], users)
-            n4grps.setdefault(lm['uid'], [])
-            
-            n4grps[lm['uid']].append()
-        elif user['nsnApprovalLimit'] == '5000':
-            n4grps.setdefault(user['nsnManagerAccountName'], [])
-            n4grps[user['nsnManagerAccountName']].append(user)
-        elif user['nsnApprovalLimit'] == '100000':
-            n3grps.setdefault(user['nsnManagerAccountName'], [])
-            n3grps[user['nsnManagerAccountName']].append(user)
-        elif user['nsnApprovalLimit'] == '500000':
-            n2grps.setdefault(user['nsnManagerAccountName'], [])
-            n2grps[user['nsnManagerAccountName']].append(user)
-        else:
-            print 'not expect such user:', user
+            lm, n4m, n3m = get_managers(user['nsnManagerAccountName'], users)
+            n5grps.setdefault(user['displayName'], [])
+            n5grps[lm['displayName']].append(user)
+            if n4m != 'global':
+                n4grps.setdefault(n4m['displayName'], [])
+                n4grps[n4m['displayName']].append(lm)
+                if n3m != 'global':
+                    n3grps.setdefault(n3m['displayName'], [])
+                    n3grps[n3m['displayName']].append(n4m)
+                else:
+                    n3grps.setdefault(n3m, [])
+                    n3grps[n3m].append(n4m)
+            else:
+                n4grps.setdefault(n4m, [])
+                n4grps[n4m].append(lm)        
     print n4grps.keys()
     print n3grps.keys()
+    print n5grps.keys()
     fields = ['n-3 manager', 'n-4 manager', 'n-5 manager', 'name', 'present']
     results = []
     for n3 in n3grps:
@@ -299,34 +305,7 @@ def save_user_as_groups(users):
                     newu['name'] = u['displayName']
                     newu['present'] = u['Present']
                     results.append(newu)
-    hz_n4 = []
-    for k, v in n3grps.iteritems():
-        hz_n4 += v
-    print 'hz n4:', hz_n4
-    for mngr, members in n4grps.iteritems():
-        if mngr not in [hz4['uid'] for hz4 in hz_n4]:
-            print 'non-hz n4', mngr
-            for n5 in members:
-                newu = dict()
-                newu['n-3 manager'] = 'N/A'
-                newu['n-4 manager'] = mngr
-                newu['n-5 manager'] = n5['displayName']
-                newu['name'] = n5['displayName']
-                newu['present'] = n5['Present']
-                results.append(newu)
-                if not n5grps.has_key(n5['uid']):
-                    continue
-                for u in n5grps[n5['uid']]:
-                    newu = dict()
-                    newu['n-3 manager'] = 'N/A'
-                    newu['n-4 manager'] = mngr
-                    newu['n-5 manager'] = n5['displayName']
-                    newu['name'] = u['displayName']
-                    newu['present'] = u['Present']
-                    results.append(newu)
-    print len(results)
-    write_results.write(fields, results, 'group sheet')
-    print n3grps.keys()
+    
 
 
 def save_user_group(users):
