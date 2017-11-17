@@ -5,11 +5,12 @@ import csv
 import read_employees
 import write_results
 
-server = "ldap://ed-p-gl.emea.nsn-net.net:389"
+
 #server = "ldap://ed-p-gl.emea.nsn-net.net:389"
 #dn = 'cn=BOOTMAN_Acc,ou=SystemUsers,ou=Accounts,o=NSN'
-dn = 'cn=Nokia_asset_management_system_Acc,ou=SystemUsers,ou=Accounts,o=NSN'
 #pw = 'Eq4ZVLXqMbKbD4th'
+server = "ldap://ed-p-gl.emea.nsn-net.net:389"
+dn = 'cn=Nokia_asset_management_system_Acc,ou=SystemUsers,ou=Accounts,o=NSN'
 pw = 'EqnFvvKfAc4p2bau'
 base_dn = 'ou=Internal,ou=People,o=NSN'
 
@@ -23,6 +24,21 @@ MANAGER_LEVEL_MAP = {
     '100000': 'N-4',
     '500000': 'N-3',
 }
+
+TT_SITE_CODE = '72011003'
+
+manager_info_cache = []
+top_managers = [] # the top node of management tree
+
+def get_manager_cache(uid):
+    for m in manager_info_cache:
+        if uid == m['uid']:
+            return m
+    return None
+
+def put_manager_cache(mngr):
+    global manager_info_cache
+    manager_info_cache.append(mngr)
 
 def ldap_init():
     if ldap_client is not None:
@@ -77,7 +93,7 @@ def get_manager(uid):
     # get manager info of the user with uid
     #l = ldap_init()
     l = ldap_client
-    attrs = ['uid', 'uidNumber', 'nsnManagerAccountName', 'displayName']
+    attrs = ['uid', 'uidNumber', 'nsnManagerAccountName', 'displayName', 'nsnSiteCode']
     res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uid=%s'%(uid,), attrs)
     if res:
         mgr_uid = res[0][1]['nsnManagerAccountName'][0]
@@ -94,8 +110,8 @@ def get_manager_verbose(uid):
     if res:
         return res[0][1]
 
-def get_user_by_uid(uid, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'displayName']):
-    l = ldap.initialize(server)
+def get_user_by_uid(uid, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'displayName', 'nsnSiteCode', 'nsnApprovalLimit']):
+    '''l = ldap.initialize(server)
     try: 
         res = l.simple_bind_s(dn, pw)
         print 'result: ', res
@@ -114,10 +130,20 @@ def get_user_by_uid(uid, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'ns
         else:
             res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uid=%s'%(uid,))
             print res
+        return res'''
+    l = ldap_init()
+    if attrs:
+        res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uid=%s'%(uid,), attrs)
+    else:
+        res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uid=%s'%(uid,))
+    if res:
+        res = res[0][1]
+        for k, v in res.iteritems():
+            res[k] = v[0]
         return res
 
 
-def get_user_by_uidnumber(uidnum, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street']):
+def get_user_by_uidnumber(uidnum, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'nsnSiteCode']):
     l = ldap.initialize(server)
     try: 
         #l.start_tls_s()
@@ -209,26 +235,49 @@ def get_managers(uid, users):
         if u['uid'] == uid:
             user = u
             break
+    if user is None:
+        user = get_manager_cache(uid)
+        if user is None:
+            user = get_user_by_uid(uid)
+            put_manager_cache(user)
+        lm = get_manager_cache(user['nsnManagerAccountName'])
+        if lm is None:
+            lm = get_user_by_uid(user['nsnManagerAccountName'])
+            put_manager_cache(lm)
+        gm = get_manager_cache(lm['nsnManagerAccountName'])
+        if gm is None:
+            gm = get_user_by_uid(lm['nsnManagerAccountName'])
+            put_manager_cache(gm)
+        return user, lm, gm
     for u in users:
         if u['uid'] == user['nsnManagerAccountName']:
             lm = u
             break
     if lm is None:
         # not located in hz
-        lm = 'global'
+        lm = get_manager_cache(user['nsnManagerAccountName'])
+        if lm is None:
+            lm = get_user_by_uid(user['nsnManagerAccountName'])
+            put_manager_cache(lm)
+        gm = get_manager_cache(lm['nsnManagerAccountName'])
+        if gm is None:
+            gm = get_user_by_uid(lm['nsnManagerAccountName'])
+            put_manager_cache(gm)
     else:
         for u in users:
             if u['uid'] == lm['nsnManagerAccountName']:
                 gm = u
             else:
-                gm = 'global'
+                gm = get_manager_cache(lm['nsnManagerAccountName'])
+                if gm is None:
+                    gm = get_user_by_uid(lm['nsnManagerAccountName'])
+                    put_manager_cache(gm)
     return user, lm, gm
-            
 
 def save_user_info(users):
     fields = ['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street',
               'displayName', 'employeeType', 'nsnTeamName', 'Present', 'lineManager',
-              'groupManager', 'nsnApprovalLimit']
+              'groupManager', 'nsnApprovalLimit', 'nsnSiteCode']
     users = preprocessing(users)
     userinfo = []
     teams = dict()
@@ -246,7 +295,39 @@ def save_user_info(users):
             teams[user['nsnTeamName']].append(user)
     write_results.write(fields, userinfo, 'employee sheet')
     save_teams(teams)
-    save_user_as_groups(users)
+    #save_user_as_groups(users)
+    sorted_users, maxlv = generate_management_tree(userinfo)
+    fields = ['manager-%d'%(l) for l in range(1, maxlv+1)]
+    write_results.write(fields, sorted_users, 'management tree sheet')
+
+def generate_management_tree(users):
+    max_levels = 0
+    for user in users:
+        mngrs = []
+        mngr = user
+        levels = 1
+        while mngr['nsnSiteCode'] == TT_SITE_CODE:
+            mngrs.append(mngr)
+            next_mngr = get_manager_cache(mngr['nsnManagerAccountName'])
+            if next_mngr == None:
+                next_mngr = get_user_by_uid(mngr['nsnManagerAccountName']) 
+                put_manager_cache(next_mngr)
+            levels = levels + 1
+            mngr = next_mngr
+        mngrs.append(mngr)
+        mngrs.reverse()
+        user['managers'] = mngrs
+        if levels > max_levels:
+            max_levels = levels
+    print 'max levels: ', max_levels
+    for user in users:
+        for i in range(1, max_levels+1):
+            if i - 1 < len(user['managers']):
+                user['manager-%d'%(i)] = user['managers'][i-1]['displayName']
+            else:
+                user['manager-%d'%(i)] = ''
+    new_users = sorted(users, key=lambda k: k['managers'], reverse=True)
+    return new_users, max_levels
 
 def save_user_as_groups(users):
     n2grps = {}
@@ -255,58 +336,93 @@ def save_user_as_groups(users):
     n5grps = {}
     print len(users)
     for user in users:
-        if user['nsnApprovalLimit'] == '0':
+        if user['nsnApprovalLimit'] != '':
             lm, n4m, n3m = get_managers(user['nsnManagerAccountName'], users)
-            n5grps.setdefault(user['displayName'], [])
-            n5grps[lm['displayName']].append(user)
-            if n4m != 'global':
-                n4grps.setdefault(n4m['displayName'], [])
-                n4grps[n4m['displayName']].append(lm)
-                if n3m != 'global':
+            if lm['nsnApprovalLimit'] == '5000' or lm['nsnApprovalLimit'] == '0': #manager can be 0 or 5000
+                n5grps.setdefault(lm['displayName'], [])
+                if not is_existing_user(user['displayName'], n5grps[lm['displayName']]):
+                    n5grps[lm['displayName']].append(user)
+                if n4m['nsnApprovalLimit'] == '500000':
+                    n3grps.setdefault(n4m['displayName'], [])
+                    if not is_existing_user(lm['displayName'], n3grps[n4m['displayName']]):
+                        n3grps[n4m['displayName']].append(lm)
+                elif n4m['nsnApprovalLimit'] == '100000' or n4m['nsnApprovalLimit'] == '5000':
+                    n4grps.setdefault(n4m['displayName'], [])
+                    if not is_existing_user(lm['displayName'], n4grps[n4m['displayName']]):
+                        n4grps[n4m['displayName']].append(lm)
                     n3grps.setdefault(n3m['displayName'], [])
-                    n3grps[n3m['displayName']].append(n4m)
+                    if not is_existing_user(n4m['displayName'], n3grps[n3m['displayName']]):
+                        n3grps[n3m['displayName']].append(n4m)
                 else:
-                    n3grps.setdefault(n3m, [])
-                    n3grps[n3m].append(n4m)
+                    print 'n5 %s reports to %s'%(lm['displayName'], n4m['displayName'])
+            elif lm['nsnApprovalLimit'] == '100000':
+                n4grps.setdefault(lm['displayName'], [])
+                if not is_existing_user(user['displayName'], n4grps[lm['displayName']]):
+                    n4grps[lm['displayName']].append(user)
+                n3grps.setdefault(n4m['displayName'], [])
+                if not is_existing_user(lm['displayName'], n3grps[n4m['displayName']]):
+                    n3grps[n4m['displayName']].append(lm)
+            elif lm['nsnApprovalLimit'] == '500000':
+                n3grps.setdefault(lm['displayName'], [])
+                if not is_existing_user(lm['displayName'], n3grps[lm['displayName']]):
+                    n3grps[lm['displayName']].append(lm)
             else:
-                n4grps.setdefault(n4m, [])
-                n4grps[n4m].append(lm)        
-    print n4grps.keys()
-    print n3grps.keys()
-    print n5grps.keys()
-    fields = ['n-3 manager', 'n-4 manager', 'n-5 manager', 'name', 'present']
-    results = []
-    for n3 in n3grps:
-        for n4 in n3grps[n3]:
-            newu = dict()
-            newu['n-3 manager'] = n3
-            newu['n-4 manager'] = n4['displayName']
-            newu['n-5 manager'] = 'na'
-            newu['name'] = n4['displayName']
-            newu['present'] = n4['Present']
-            results.append(newu)
-            if not n4grps.has_key(n4['uid']):
+                n3grps.setdefault(user['displayName'], [])
+                print '%s directly reports to %s, geeee!'%(user['displayName'], lm['displayName'])
+    employees = []
+    total = 0
+    for n3, members in n3grps.iteritems():
+        print n3, 'has following N-4s'
+        print [m['displayName'] for m in members]
+        for n4 in members:
+            if n4['nsnSiteCode'] == TT_SITE_CODE:
+                total = total + 1
+            if not n4grps.has_key(n4['displayName']):
+                user = dict()
+                user['name'] = n4['displayName']
+                user['n-3'] = n3
+                user['n-4'] = ''
+                user['n-5'] = ''
+                employees.append(user)
                 continue
-            for n5 in n4grps[n4['uid']]:
-                newu = dict()
-                newu['n-3 manager'] = n3
-                newu['n-4 manager'] = n4['displayName']
-                newu['n-5 manager'] = n5['displayName']
-                newu['name'] = n5['displayName']
-                newu['present'] = n5['Present']
-                results.append(newu)
-                if not n5grps.has_key(n5['uid']):
+            for n5 in n4grps[n4['displayName']]:
+                if n5['nsnSiteCode'] == TT_SITE_CODE:
+                    total = total + 1
+                if not n5grps.has_key(n5['displayName']):
+                    user = dict()
+                    user['name'] = n5['displayName']
+                    user['n-3'] = n3
+                    user['n-4'] = n4['displayName']
+                    user['n-5'] = ''
+                    employees.append(user)
                     continue
-                for u in n5grps[n5['uid']]:
-                    newu = dict()
-                    newu['n-3 manager'] = n3
-                    newu['n-4 manager'] = n4['displayName']
-                    newu['n-5 manager'] = n5['displayName']
-                    newu['name'] = u['displayName']
-                    newu['present'] = u['Present']
-                    results.append(newu)
-    
+                for u in n5grps[n5['displayName']]:
+                    user = dict()
+                    user['name'] = u['displayName']
+                    user['n-3'] = n3
+                    user['n-4'] = n4['displayName']
+                    user['n-5'] = n5['displayName']
+                    employees.append(user)
+                    if u['nsnSiteCode'] == TT_SITE_CODE:
+                        total = total + 1
+    print 'total: %d, employees: %d'%(total, len(employees))
+    print 'done, start writing groups'
+    validate_output(employees, users)
+    fields = ['n-3', 'n-4', 'n-5', 'name']
+    write_results.write(fields, employees, 'groups')
 
+def is_existing_user(dn, users):
+    for user in users:
+        if user.has_key('displayName') and dn == user['displayName']:
+            return True
+        if user.has_key('name') and dn == user['name']:
+            return True
+    return False
+
+def validate_output(out, allusers):
+    for u in allusers:
+        if not is_existing_user(u['displayName'], out):
+            print u
 
 def save_user_group(users):
     n2grps = {}
@@ -395,14 +511,22 @@ def save_user_group(users):
 def save_teams(teams):
     teaminfo = []
     for k, v in teams.iteritems():
-        mngr = v[0]
+        mngr = None
         t = dict()
+        #for u in v:
+        #    if int(u['nsnApprovalLimit']) > int(mngr['nsnApprovalLimit']):
+        #        mngr = u
         for u in v:
-            if u['nsnApprovalLimit'] > mngr['nsnApprovalLimit']:
-                mngr = u
+            for o in v:
+                if o['nsnManagerAccountName'] == u['uid']:
+                    mngr = u
         t['teamname'] = k
-        t['manager'] = mngr['displayName']
-        t['managerlevel'] = MANAGER_LEVEL_MAP[mngr['nsnApprovalLimit']]
+        if mngr:
+            t['manager'] = mngr['displayName']
+            t['managerlevel'] = MANAGER_LEVEL_MAP[mngr['nsnApprovalLimit']]
+        else:
+            t['manager'] = 'nobody'
+            t['managerlevel'] = 'na'
         t['total'] = len(v)
         t['actual'] = len([u for u in v if u['Present']])
         #print k, 'total: ', len(v), ' managed by ', mngr['displayName']
@@ -444,7 +568,7 @@ if __name__ == '__main__':
         if l:
             filt = '(&(uid=%s*) (nsnCity=hangzhou))'%('ab')
             attrs = ['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'displayName', 'employeeType',
-                     'nsnTeamName', 'nsnApprovalLimit']
+                     'nsnTeamName', 'nsnApprovalLimit', 'nsnSiteCode']
             #attrs = ['+']
             if non_sync:
                 rids = []
@@ -479,7 +603,8 @@ if __name__ == '__main__':
                             resps.append(wildcard)
                             if res[1] != []:
                                 for _, u in res[1]:
-                                    if 'Xincheng' in u['street'][0]:
+                                    #if 'Xincheng' in u['street'][0]:
+                                    if u['nsnSiteCode'][0] == TT_SITE_CODE:
                                         users.append(u)
                         else:
                             print("None res for %s"%(wildcard))
@@ -520,7 +645,8 @@ if __name__ == '__main__':
                             resps.append(wildcard)
                             if res[1] != []:
                                 for _, u in res[1]:
-                                    if 'Xincheng' in u['street'][0]:
+                                    #if 'Xincheng' in u['street'][0]:
+                                    if u['nsnSiteCode'] == TT_SITE_CODE:
                                         users.append(u)
                         else:
                             print("None res for %s"%(wildcard))
@@ -573,7 +699,6 @@ if __name__ == '__main__':
                                     #print 'xincheng user: ', u
                                 if u['nsnStatus'][0].upper() != 'ACTIVE':
                                     print('invalid status, ', u)
-                                #print u['nsnTeamId'][0], u['nsnBusinessGroupShortName'][0], u['sn'][0], u['uid'][0], u['uidNumber'][0]
                             except:
                                 pass
                         if res:

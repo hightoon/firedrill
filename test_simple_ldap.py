@@ -5,7 +5,7 @@ def test_get_user_by_uidnum(uidnum, attrs):
     print res
 
 def test_get_user_by_uid(uid):
-    print simple_ldap.get_user_by_uidnumber(uid)
+    print simple_ldap.get_user_by_uid(uid)
 
 def test_get_manager(uid):
     print simple_ldap.get_manager(uid)
@@ -30,3 +30,6 @@ if __name__ == '__main__':
     test_get_user_by_uidnum('61278396', None)
     test_get_user_by_uidnum('61402704', None)
     test_get_user_by_uidnum('10163277', None)
+    test_get_user_by_uid('diding')
+    test_get_user_by_uid('haitchen')
+    test_get_user_by_uid('sberrahi')
