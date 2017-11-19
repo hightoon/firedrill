@@ -33,3 +33,5 @@ if __name__ == '__main__':
     test_get_user_by_uid('diding')
     test_get_user_by_uid('haitchen')
     test_get_user_by_uid('sberrahi')
+    test_get_user_by_uid('dawchen')
+    test_get_user_by_uid('q19306')

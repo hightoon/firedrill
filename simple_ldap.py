@@ -29,6 +29,8 @@ TT_SITE_CODE = '72011003'
 
 manager_info_cache = []
 top_managers = [] # the top node of management tree
+MNGR_EXPECTED = {}
+MNGR_STATS = {}
 
 def get_manager_cache(uid):
     for m in manager_info_cache:
@@ -38,13 +40,14 @@ def get_manager_cache(uid):
 
 def put_manager_cache(mngr):
     global manager_info_cache
+    mngr['islm'] = True
     manager_info_cache.append(mngr)
 
 def ldap_init():
     if ldap_client is not None:
         return ldap_client
     l = ldap.initialize(server)
-    try: 
+    try:
         #l.start_tls_s()
         res = l.simple_bind_s(dn, pw)
         print 'result: ', res
@@ -54,7 +57,7 @@ def ldap_init():
     except ldap.LDAPError, e:
         if type(e.message) == dict and e.message.has_key('desc'):
             print e, e.message['desc']
-        else: 
+        else:
             print e
         return None
     finally:
@@ -96,7 +99,11 @@ def get_manager(uid):
     attrs = ['uid', 'uidNumber', 'nsnManagerAccountName', 'displayName', 'nsnSiteCode']
     res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uid=%s'%(uid,), attrs)
     if res:
-        mgr_uid = res[0][1]['nsnManagerAccountName'][0]
+        try:
+            mgr_uid = res[0][1]['nsnManagerAccountName'][0]
+        except KeyError:
+            print uid, res[0][1]
+            mgr_uid = 'm14wang' # if no manager, set self as mike wang
     res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uid=%s'%(mgr_uid,), attrs)
     if res:
         return res[0][1]
@@ -112,7 +119,7 @@ def get_manager_verbose(uid):
 
 def get_user_by_uid(uid, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'displayName', 'nsnSiteCode', 'nsnApprovalLimit']):
     '''l = ldap.initialize(server)
-    try: 
+    try:
         res = l.simple_bind_s(dn, pw)
         print 'result: ', res
     except ldap.INVALID_CREDENTIALS:
@@ -293,12 +300,13 @@ def save_user_info(users):
             userinfo.append(user)
             teams.setdefault(user['nsnTeamName'], [])
             teams[user['nsnTeamName']].append(user)
-    write_results.write(fields, userinfo, 'employee sheet')
-    save_teams(teams)
+    #write_results.write(fields, userinfo, 'employee sheet')
+    #save_teams(teams)
     #save_user_as_groups(users)
     sorted_users, maxlv = generate_management_tree(userinfo)
+    generate_mngr_stats(sorted_users)
     fields = ['manager-%d'%(l) for l in range(1, maxlv+1)]
-    write_results.write(fields, sorted_users, 'management tree sheet')
+    write_results.write(fields, sorted_users, 'management tree sheet', expected=MNGR_EXPECTED, stats=MNGR_STATS)
 
 def generate_management_tree(users):
     max_levels = 0
@@ -328,6 +336,31 @@ def generate_management_tree(users):
                 user['manager-%d'%(i)] = ''
     new_users = sorted(users, key=lambda k: k['managers'], reverse=True)
     return new_users, max_levels
+
+def generate_mngr_stats(users):
+    ''' get manager based fire-drill statistics from management tree
+        input:
+            users - must be users after calling generate_management_tree
+    '''
+    for user in users:
+        for m in user['managers'][:-1]:
+            if user['managers'].index(m) == 0:
+                MNGR_EXPECTED.setdefault(m['displayName'], 0) # top manager always NOT in TT, so she's not expected
+            else:
+                MNGR_EXPECTED.setdefault(m['displayName'], 1)
+            MNGR_EXPECTED[m['displayName']] += 1
+        if user['Present'] == 'YES':
+            for m in user['managers'][:-1]:
+                if not m.has_key('Present'):
+                    print '%s not required to join fire  drill'%(m['displayName'])
+                    MNGR_STATS.setdefault(m['displayName'], 0)
+                else:
+                    if m['Present'] == 'YES':
+                        MNGR_STATS.setdefault(m['displayName'], 1) # check participatation of herself
+                    else:
+                        MNGR_STATS.setdefault(m['displayName'], 0)
+                MNGR_STATS[m['displayName']] += 1
+    print MNGR_EXPECTED
 
 def save_user_as_groups(users):
     n2grps = {}
@@ -547,190 +580,190 @@ def compare_users(users):
     return nid_diff
 
 if __name__ == '__main__':
-        '''
-        l = ldap.initialize(server)
-        try: 
-            #l.start_tls_s()
-            res = l.simple_bind_s(dn, pw)
-            print 'result: ', res
-        except ldap.INVALID_CREDENTIALS:
-            print "Your username or password is incorrect."
-            sys.exit()
-        except ldap.LDAPError, e:
-            if type(e.message) == dict and e.message.has_key('desc'):
-                print e, e.message['desc']
-            else: 
-                print e
-            sys.exit()
-        finally:
-        '''
-        l = ldap_init()
-        if l:
-            filt = '(&(uid=%s*) (nsnCity=hangzhou))'%('ab')
-            attrs = ['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'displayName', 'employeeType',
-                     'nsnTeamName', 'nsnApprovalLimit', 'nsnSiteCode']
-            #attrs = ['+']
-            if non_sync:
-                rids = []
-                for fstch in range(ord('a'), ord('z')+1):
-                    for sndch in range(ord('0'), ord('9')+1) + range(ord('a'), ord('z')+1):
-                        wildcard = unichr(fstch) + unichr(sndch)
-                        filt = '(&(uid=%s*) (nsnCity=hangzhou))'%(wildcard,)
-                        rid = l.search_ext(base_dn, ldap.SCOPE_SUBTREE, filt, attrs, timeout=20)
-                        rids.append((wildcard, rid))
-                users = []
-                exceptions = []
-                polls = 0
-                resps = []
-                while polls < 100:
-                    if len(resps) + len(exceptions) == len(rids):
-                        print("all queries DONE!!!")
-                        break
-                    print len(resps), len(rids)
+    '''
+    l = ldap.initialize(server)
+    try: 
+        #l.start_tls_s()
+        res = l.simple_bind_s(dn, pw)
+        print 'result: ', res
+    except ldap.INVALID_CREDENTIALS:
+        print "Your username or password is incorrect."
+        sys.exit()
+    except ldap.LDAPError, e:
+        if type(e.message) == dict and e.message.has_key('desc'):
+            print e, e.message['desc']
+        else: 
+            print e
+        sys.exit()
+    finally:
+    '''
+    l = ldap_init()
+    if l:
+        filt = '(&(uid=%s*) (nsnCity=hangzhou))'%('ab')
+        attrs = ['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'displayName', 'employeeType',
+                 'nsnTeamName', 'nsnApprovalLimit', 'nsnSiteCode']
+        #attrs = ['+']
+        if non_sync:
+            rids = []
+            for fstch in range(ord('a'), ord('z')+1):
+                for sndch in range(ord('0'), ord('9')+1) + range(ord('a'), ord('z')+1):
+                    wildcard = unichr(fstch) + unichr(sndch)
+                    filt = '(&(uid=%s*) (nsnCity=hangzhou))'%(wildcard,)
+                    rid = l.search_ext(base_dn, ldap.SCOPE_SUBTREE, filt, attrs, timeout=20)
+                    rids.append((wildcard, rid))
+            users = []
+            exceptions = []
+            polls = 0
+            resps = []
+            while polls < 100:
+                if len(resps) + len(exceptions) == len(rids):
+                    print("all queries DONE!!!")
+                    break
+                print len(resps), len(rids)
 
-                    for wildcard, rid in rids:
-                        if wildcard in resps:
-                            #print("already done %s"%(wildcard))
-                            continue
-                        try:
-                            res = l.result(rid, True, 50)
-                        except ldap.LDAPError, e:
-                            print e, wildcard
-                            exceptions.append(wildcard)
-                            continue
-                        #print res
-                        if res[0] is not None:
-                            resps.append(wildcard)
-                            if res[1] != []:
-                                for _, u in res[1]:
-                                    #if 'Xincheng' in u['street'][0]:
-                                    if u['nsnSiteCode'][0] == TT_SITE_CODE:
-                                        users.append(u)
-                        else:
-                            print("None res for %s"%(wildcard))
-                    polls = polls + 1
-                print len(users)
-                # second round
-                rids = []
-                for ex in exceptions:
-                    for ch in range(ord('0'), ord('9')+1) + range(ord('a'), ord('z')+1):
-                        wildcard = ex + unichr(ch)
-                        filt = '(&(uid=%s*) (nsnCity=hangzhou))'%(wildcard,)
-                        rid = l.search_ext(base_dn, ldap.SCOPE_SUBTREE, filt, attrs, timeout=20)
-                        rids.append((wildcard, rid))
-                polls = 0
-                resps = []
-                exceptions = []
-                while polls < 100:
-                    if len(resps) + len(exceptions) == len(rids):
-                        print("all queries DONE!!!")
-                        break
-                    #print len(resps), len(rids)
-
-                    for wildcard, rid in rids:
-                        if wildcard in resps:
-                            #print("already done %s"%(wildcard))
-                            continue
-                        try:
-                            res = l.result(rid, True, 50)
-                        except ldap.LDAPError, e:
-                            print e, wildcard
-                            exceptions.append(wildcard)
-                            continue
-                        else:
-                            pass
-                            #print wildcard, 'has been done!'
-                        #print res
-                        if res[0] is not None:
-                            resps.append(wildcard)
-                            if res[1] != []:
-                                for _, u in res[1]:
-                                    #if 'Xincheng' in u['street'][0]:
-                                    if u['nsnSiteCode'] == TT_SITE_CODE:
-                                        users.append(u)
-                        else:
-                            print("None res for %s"%(wildcard))
-                    polls = polls + 1
-                print('total number users: %d'%(len(users)))
-        
-                '''
-                poll_num = 0
-                raw_res = (None, None)
-                print rid
-                users = []
-                while raw_res[0] is None and poll_num < 300:
-                    print 'still polling, %d'%(poll_num)
-                    raw_res = l.result(rid, 1)
-                    poll_num = poll_num + 1
-                    time.sleep(1)
-                res_num = 0
-                print raw_res[1]
-                users.append(raw_res[1][0])
-                while res_num < 1000:
-                    raw_res = l.result(rid, 0)
-                    if raw_res[0]:
-                        users.append(raw_res[1][0])
+                for wildcard, rid in rids:
+                    if wildcard in resps:
+                        #print("already done %s"%(wildcard))
+                        continue
+                    try:
+                        res = l.result(rid, True, 50)
+                    except ldap.LDAPError, e:
+                        print e, wildcard
+                        exceptions.append(wildcard)
+                        continue
+                    #print res
+                    if res[0] is not None:
+                        resps.append(wildcard)
+                        if res[1] != []:
+                            for _, u in res[1]:
+                                #if 'Xincheng' in u['street'][0]:
+                                if u['nsnSiteCode'][0] == TT_SITE_CODE:
+                                    users.append(u)
                     else:
-                        print 'empty result...'   
-                    res_num = res_num + 1
-                for _, u in users:
-                    print u['sn'][0], u['uid'][0], u['uidNumber'][0]
-                '''
-            else:
-                exceptional = []
-                users = []
-                for fstch in range(ord('a'), ord('z')+1):
-                    #users = get_user_by_part_uid(unichr(fstch), users, attrs)
-                    #continue
-                    for sndch in range(ord('0'), ord('9')+1) + range(ord('a'), ord('z')+1):
-                        wildcard = unichr(fstch) + unichr(sndch)
-                        filt = '(&(uid=%s*) (nsnCity=hangzhou))'%(wildcard,)
-                        #print filt
+                        print("None res for %s"%(wildcard))
+                polls = polls + 1
+            print len(users)
+            # second round
+            rids = []
+            for ex in exceptions:
+                for ch in range(ord('0'), ord('9')+1) + range(ord('a'), ord('z')+1):
+                    wildcard = ex + unichr(ch)
+                    filt = '(&(uid=%s*) (nsnCity=hangzhou))'%(wildcard,)
+                    rid = l.search_ext(base_dn, ldap.SCOPE_SUBTREE, filt, attrs, timeout=20)
+                    rids.append((wildcard, rid))
+            polls = 0
+            resps = []
+            exceptions = []
+            while polls < 100:
+                if len(resps) + len(exceptions) == len(rids):
+                    print("all queries DONE!!!")
+                    break
+                #print len(resps), len(rids)
+
+                for wildcard, rid in rids:
+                    if wildcard in resps:
+                        #print("already done %s"%(wildcard))
+                        continue
+                    try:
+                        res = l.result(rid, True, 50)
+                    except ldap.LDAPError, e:
+                        print e, wildcard
+                        exceptions.append(wildcard)
+                        continue
+                    else:
+                        pass
+                        #print wildcard, 'has been done!'
+                    #print res
+                    if res[0] is not None:
+                        resps.append(wildcard)
+                        if res[1] != []:
+                            for _, u in res[1]:
+                                #if 'Xincheng' in u['street'][0]:
+                                if u['nsnSiteCode'] == TT_SITE_CODE:
+                                    users.append(u)
+                    else:
+                        print("None res for %s"%(wildcard))
+                polls = polls + 1
+            print('total number users: %d'%(len(users)))
+    
+            '''
+            poll_num = 0
+            raw_res = (None, None)
+            print rid
+            users = []
+            while raw_res[0] is None and poll_num < 300:
+                print 'still polling, %d'%(poll_num)
+                raw_res = l.result(rid, 1)
+                poll_num = poll_num + 1
+                time.sleep(1)
+            res_num = 0
+            print raw_res[1]
+            users.append(raw_res[1][0])
+            while res_num < 1000:
+                raw_res = l.result(rid, 0)
+                if raw_res[0]:
+                    users.append(raw_res[1][0])
+                else:
+                    print 'empty result...'   
+                res_num = res_num + 1
+            for _, u in users:
+                print u['sn'][0], u['uid'][0], u['uidNumber'][0]
+            '''
+        else:
+            exceptional = []
+            users = []
+            for fstch in range(ord('a'), ord('z')+1):
+                #users = get_user_by_part_uid(unichr(fstch), users, attrs)
+                #continue
+                for sndch in range(ord('0'), ord('9')+1) + range(ord('a'), ord('z')+1):
+                    wildcard = unichr(fstch) + unichr(sndch)
+                    filt = '(&(uid=%s*) (nsnCity=hangzhou))'%(wildcard,)
+                    #print filt
+                    try:
+                        res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, filt, attrs)
+                    except:
+                        exceptional.append(wildcard)
+                        continue
+                    #users = ldaphelper.get_search_results(res)
+                    for _, u in res:
                         try:
-                            res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, filt, attrs)
+                            if 'Xincheng' in u['street'][0]:
+                                users.append(u)
+                                #print 'xincheng user: ', u
+                            if u['nsnStatus'][0].upper() != 'ACTIVE':
+                                print('invalid status, ', u)
                         except:
-                            exceptional.append(wildcard)
-                            continue
-                        #users = ldaphelper.get_search_results(res)
-                        for _, u in res:
-                            try:
-                                if 'Xincheng' in u['street'][0]:
-                                    users.append(u)
-                                    #print 'xincheng user: ', u
-                                if u['nsnStatus'][0].upper() != 'ACTIVE':
-                                    print('invalid status, ', u)
-                            except:
-                                pass
-                        if res:
-                            #print res[0][1].keys()
                             pass
-                print('Hi, the following filters need further processing...')
-                print(exceptional)
-                # further processing for those exceptional
-                exceptional_wth_three_chr = []
-                for ex in exceptional:
-                    for thdch in range(ord('0'), ord('9')+1) + range(ord('a'), ord('z')+1):
-                        wildcard = ex + unichr(thdch)
-                        filt = '(&(uid=%s*) (nsnCity=Hangzhou))'%(wildcard,)
+                    if res:
+                        #print res[0][1].keys()
+                        pass
+            print('Hi, the following filters need further processing...')
+            print(exceptional)
+            # further processing for those exceptional
+            exceptional_wth_three_chr = []
+            for ex in exceptional:
+                for thdch in range(ord('0'), ord('9')+1) + range(ord('a'), ord('z')+1):
+                    wildcard = ex + unichr(thdch)
+                    filt = '(&(uid=%s*) (nsnCity=Hangzhou))'%(wildcard,)
+                    try:
+                        res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, filt, attrs)
+                    except ldap.LDAPError, e:
+                        print e, wildcard
+                        exceptional_wth_three_chr.append(wildcard)
+                        continue
+                    for _, u in res:
                         try:
-                            res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, filt, attrs)
-                        except ldap.LDAPError, e:
-                            print e, wildcard
-                            exceptional_wth_three_chr.append(wildcard)
-                            continue
-                        for _, u in res:
-                            try:
-                                if 'Xincheng' in u['street'][0]:
-                                    users.append(u)
-                                    #print 'xincheng user: ', u
-                            except:
-                                pass
-                        #if res != []: print res[0][1].keys()
-                if exceptional_wth_three_chr != []:
-                    print('still we have exceptional', exceptional_wth_three_chr)
-                    users = get_user_by_part_uid(exceptional_wth_three_chr, users, attrs)
-                            
-                print('total number of users located in HZ: %d'%(len(users)))
-                #get_us er_by_uid(l, 'haitchen')a
-                save_user_info(users)
-                #print(compare_users(users))
+                            if 'Xincheng' in u['street'][0]:
+                                users.append(u)
+                                #print 'xincheng user: ', u
+                        except:
+                            pass
+                    #if res != []: print res[0][1].keys()
+            if exceptional_wth_three_chr != []:
+                print('still we have exceptional', exceptional_wth_three_chr)
+                users = get_user_by_part_uid(exceptional_wth_three_chr, users, attrs)
+                        
+            print('total number of users located in HZ: %d'%(len(users)))
+            #get_us er_by_uid(l, 'haitchen')a
+            save_user_info(users)
+            #print(compare_users(users))
