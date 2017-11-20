@@ -6,9 +6,6 @@ import read_employees
 import write_results
 
 
-#server = "ldap://ed-p-gl.emea.nsn-net.net:389"
-#dn = 'cn=BOOTMAN_Acc,ou=SystemUsers,ou=Accounts,o=NSN'
-#pw = 'Eq4ZVLXqMbKbD4th'
 server = "ldap://ed-p-gl.emea.nsn-net.net:389"
 dn = 'cn=Nokia_asset_management_system_Acc,ou=SystemUsers,ou=Accounts,o=NSN'
 pw = 'EqnFvvKfAc4p2bau'
@@ -128,7 +125,7 @@ def get_user_by_uid(uid, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'ns
     except ldap.LDAPError, e:
         if type(e.message) == dict and e.message.has_key('desc'):
             print e, e.message['desc']
-        else: 
+        else:
             print e
         sys.exit()
     finally:
@@ -152,7 +149,7 @@ def get_user_by_uid(uid, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'ns
 
 def get_user_by_uidnumber(uidnum, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'nsnSiteCode']):
     l = ldap.initialize(server)
-    try: 
+    try:
         #l.start_tls_s()
         res = l.simple_bind_s(dn, pw)
         print 'result: ', res
@@ -162,7 +159,7 @@ def get_user_by_uidnumber(uidnum, attrs=['uid', 'uidNumber', 'nsnManagerAccountN
     except ldap.LDAPError, e:
         if type(e.message) == dict and e.message.has_key('desc'):
             print e, e.message['desc']
-        else: 
+        else:
             print e
         sys.exit()
     finally:
@@ -199,7 +196,7 @@ def get_user_by_part_uid(basestrs, found, attrs):
     if exceptional != []:
         print('still we have exceptional', exceptional)
         found = get_user_by_part_uid(exceptional, found, attrs)
-                
+
     return found
 
 def is_present(uidnum):
@@ -221,7 +218,6 @@ def get_managers_locally(uid, users):
             try:
                 lm = user['nsnManagerAccountName']
             except:
-                #lm = lm['uid']
                 pass
             break
     for user in users:
@@ -304,6 +300,7 @@ def save_user_info(users):
     #save_teams(teams)
     #save_user_as_groups(users)
     sorted_users, maxlv = generate_management_tree(userinfo)
+    #remove_unique_top_mgr(sorted_users)
     generate_mngr_stats(sorted_users)
     fields = ['manager-%d'%(l) for l in range(1, maxlv+1)]
     write_results.write(fields, sorted_users, 'management tree sheet', expected=MNGR_EXPECTED, stats=MNGR_STATS)
@@ -318,7 +315,8 @@ def generate_management_tree(users):
             mngrs.append(mngr)
             next_mngr = get_manager_cache(mngr['nsnManagerAccountName'])
             if next_mngr == None:
-                next_mngr = get_user_by_uid(mngr['nsnManagerAccountName']) 
+                next_mngr = get_user_by_uid(mngr['nsnManagerAccountName'])
+                next_mngr['Present'] = is_present(next_mngr['uidNumber'])
                 put_manager_cache(next_mngr)
             levels = levels + 1
             mngr = next_mngr
@@ -353,14 +351,27 @@ def generate_mngr_stats(users):
             for m in user['managers'][:-1]:
                 if not m.has_key('Present'):
                     print '%s not required to join fire  drill'%(m['displayName'])
+                    print m
                     MNGR_STATS.setdefault(m['displayName'], 0)
                 else:
                     if m['Present'] == 'YES':
                         MNGR_STATS.setdefault(m['displayName'], 1) # check participatation of herself
                     else:
                         MNGR_STATS.setdefault(m['displayName'], 0)
+                        print 'manager: %s not present'%(m['displayName'])
                 MNGR_STATS[m['displayName']] += 1
-    print MNGR_EXPECTED
+
+def remove_unique_top_mgr(users):
+    mgr_list_set = set([u['managers'][:2] for u in users])
+    mgr_counter = {}
+    for m in mgr_list_set:
+        mgr_counter.setdefault(m[0], 0)
+        mgr_counter[m[0]] += 1
+    uniq = []
+    for k, v in mgr_counter:
+        if v == 1:
+            uniq.append(k)
+    return k
 
 def save_user_as_groups(users):
     n2grps = {}
@@ -540,7 +551,7 @@ def save_user_group(users):
     write_results.write(fields, results, 'group sheet')
     print n3grps.keys()
     print n2grps
-    
+
 def save_teams(teams):
     teaminfo = []
     for k, v in teams.iteritems():
@@ -582,7 +593,7 @@ def compare_users(users):
 if __name__ == '__main__':
     '''
     l = ldap.initialize(server)
-    try: 
+    try:
         #l.start_tls_s()
         res = l.simple_bind_s(dn, pw)
         print 'result: ', res
@@ -592,7 +603,7 @@ if __name__ == '__main__':
     except ldap.LDAPError, e:
         if type(e.message) == dict and e.message.has_key('desc'):
             print e, e.message['desc']
-        else: 
+        else:
             print e
         sys.exit()
     finally:
@@ -685,7 +696,7 @@ if __name__ == '__main__':
                         print("None res for %s"%(wildcard))
                 polls = polls + 1
             print('total number users: %d'%(len(users)))
-    
+
             '''
             poll_num = 0
             raw_res = (None, None)
@@ -704,7 +715,7 @@ if __name__ == '__main__':
                 if raw_res[0]:
                     users.append(raw_res[1][0])
                 else:
-                    print 'empty result...'   
+                    print 'empty result...'
                 res_num = res_num + 1
             for _, u in users:
                 print u['sn'][0], u['uid'][0], u['uidNumber'][0]
@@ -762,7 +773,7 @@ if __name__ == '__main__':
             if exceptional_wth_three_chr != []:
                 print('still we have exceptional', exceptional_wth_three_chr)
                 users = get_user_by_part_uid(exceptional_wth_three_chr, users, attrs)
-                        
+
             print('total number of users located in HZ: %d'%(len(users)))
             #get_us er_by_uid(l, 'haitchen')a
             save_user_info(users)
