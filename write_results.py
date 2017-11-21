@@ -2,11 +2,12 @@ import os.path
 import xlsxwriter
 from openpyxl import Workbook, load_workbook
 
-def write(fields, results, sn, expected=None, stats=None):
+def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=None):
     wb = xlsxwriter.Workbook('fd_mngm_tr.xlsx')
     ws = wb.add_worksheet(sn)
     bold = wb.add_format({'bold': 1})
     redbold = wb.add_format({'bold': 1, 'font_color': 'red'})
+    greenbold = wb.add_format({'bold': 1, 'font_color': 'green'})
     row = 0 
     for col, f in enumerate(fields):
         ws.write(row, col, f, bold)
@@ -51,7 +52,10 @@ def write(fields, results, sn, expected=None, stats=None):
         if pre1 is None:
             pre1 = mgr1
         if mgr1 != pre1:
-            ws.write('A%d'%(row+1,), pre1, bold)
+            if pre1 in ttboss:
+                ws.write('A%d'%(row+1,), pre1, greenbold)
+            else:
+                ws.write('A%d'%(row+1,), pre1, bold)
             ws.write('B%d'%(row+1,), 'Expected No.: %d'%(expected[pre1],), bold)
             ws.write('C%d'%(row+1,), 'Actual No.: %d'%(stats[pre1],), bold)
             ws.set_row(row, None, None, {'level': 1, 'hidden': True, 'collapsed': True})

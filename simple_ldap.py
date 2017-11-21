@@ -25,9 +25,10 @@ MANAGER_LEVEL_MAP = {
 TT_SITE_CODE = '72011003'
 
 manager_info_cache = []
-top_managers = [] # the top node of management tree
+LOCAL_TOPS = [] # the top node of management tree
 MNGR_EXPECTED = {}
 MNGR_STATS = {}
+MNGRS_WITH_TT_BOSS = []
 
 def get_manager_cache(uid):
     for m in manager_info_cache:
@@ -300,10 +301,14 @@ def save_user_info(users):
     #save_teams(teams)
     #save_user_as_groups(users)
     sorted_users, maxlv = generate_management_tree(userinfo)
-    #remove_unique_top_mgr(sorted_users)
+    # check if top manager with TT boss must be done before removing top mgr
+    get_top_managers_with_tt_boss(sorted_users)
+    remove_unique_top_mgr(sorted_users)
     generate_mngr_stats(sorted_users)
     fields = ['manager-%d'%(l) for l in range(1, maxlv+1)]
-    write_results.write(fields, sorted_users, 'management tree sheet', expected=MNGR_EXPECTED, stats=MNGR_STATS)
+    fields.append('Present')
+    write_results.write(fields, sorted_users, 'management tree sheet',
+                    expected=MNGR_EXPECTED, stats=MNGR_STATS, ttboss=MNGRS_WITH_TT_BOSS)
 
 def generate_management_tree(users):
     max_levels = 0
@@ -341,8 +346,8 @@ def generate_mngr_stats(users):
             users - must be users after calling generate_management_tree
     '''
     for user in users:
-        for m in user['managers'][:-1]:
-            if user['managers'].index(m) == 0:
+        for i, m in enumerate(user['managers'][:-1]):
+            if i == 0 and m['displayName'] not in LOCAL_TOPS:
                 MNGR_EXPECTED.setdefault(m['displayName'], 0) # top manager always NOT in TT, so she's not expected
             else:
                 MNGR_EXPECTED.setdefault(m['displayName'], 1)
@@ -361,17 +366,39 @@ def generate_mngr_stats(users):
                         print 'manager: %s not present'%(m['displayName'])
                 MNGR_STATS[m['displayName']] += 1
 
-def remove_unique_top_mgr(users):
-    mgr_list_set = set([u['managers'][:2] for u in users])
+def get_top_managers_with_tt_boss(userlist):
+    global MNGRS_WITH_TT_BOSS
+    tops = set([(u['managers'][0]['displayName'], u['managers'][0]['nsnManagerAccountName']) for u in userlist])
+    for n, mn in tops:
+        for mgr in manager_info_cache:
+            if mn == mgr['uid'] and mgr['nsnSiteCode'] == TT_SITE_CODE:
+                MNGRS_WITH_TT_BOSS.append(n)
+    print MNGRS_WITH_TT_BOSS
+
+def remove_unique_top_mgr(userlist):
+    global LOCAL_TOPS
+    mgr_list_set = set(['+'.join(map(lambda x: x['displayName'], u['managers'][:2])) for u in userlist])
     mgr_counter = {}
     for m in mgr_list_set:
-        mgr_counter.setdefault(m[0], 0)
-        mgr_counter[m[0]] += 1
+        mgr_counter.setdefault(m.split('+')[0], 0)
+        mgr_counter[m.split('+')[0]] += 1
     uniq = []
-    for k, v in mgr_counter:
+    for k, v in mgr_counter.iteritems():
         if v == 1:
             uniq.append(k)
-    return k
+    for user in userlist:
+        if (user['managers'][0]['displayName'] in uniq 
+            and user['managers'][0]['displayName'] not in MNGRS_WITH_TT_BOSS):
+            if len(user['managers']) == 2:
+                user['managers'][0] = user['managers'][1] # duplicate self
+            else:
+                user['managers'] = user['managers'][1:]
+            for i in range(6):
+                user['manager-%d'%(i+1,)] = ''
+            for i, m in enumerate(user['managers']):
+                user['manager-%d'%(i+1,)] = m['displayName']
+            if user['manager-1'] not in LOCAL_TOPS:
+                LOCAL_TOPS.append(user['manager-1'])
 
 def save_user_as_groups(users):
     n2grps = {}
