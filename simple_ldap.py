@@ -4,6 +4,8 @@ import time
 import csv
 import read_employees
 import write_results
+import RegistrationInfo
+from readreg import read_regs
 
 
 server = "ldap://ed-p-gl.emea.nsn-net.net:389"
@@ -29,6 +31,10 @@ LOCAL_TOPS = [] # the top node of management tree
 MNGR_EXPECTED = {}
 MNGR_STATS = {}
 MNGRS_WITH_TT_BOSS = []
+REG_USERS = None
+REG_EMPLOYEES = None
+REG_EXTERN = None
+MATCHED = {}
 
 def get_manager_cache(uid):
     for m in manager_info_cache:
@@ -116,26 +122,6 @@ def get_manager_verbose(uid):
         return res[0][1]
 
 def get_user_by_uid(uid, attrs=['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'displayName', 'nsnSiteCode', 'nsnApprovalLimit']):
-    '''l = ldap.initialize(server)
-    try:
-        res = l.simple_bind_s(dn, pw)
-        print 'result: ', res
-    except ldap.INVALID_CREDENTIALS:
-        print "Your username or password is incorrect."
-        sys.exit()
-    except ldap.LDAPError, e:
-        if type(e.message) == dict and e.message.has_key('desc'):
-            print e, e.message['desc']
-        else:
-            print e
-        sys.exit()
-    finally:
-        if attrs:
-            res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uid=%s'%(uid,), attrs)
-        else:
-            res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uid=%s'%(uid,))
-            print res
-        return res'''
     l = ldap_init()
     if attrs:
         res = l.search_s(base_dn, ldap.SCOPE_SUBTREE, 'uid=%s'%(uid,), attrs)
@@ -201,7 +187,12 @@ def get_user_by_part_uid(basestrs, found, attrs):
     return found
 
 def is_present(uidnum):
-    return 'YES'
+    global MATCHED
+    for u in REG_EMPLOYEES:
+        if uidnum == u.person.uidnum:
+            MATCHED[u.nickname] = u.person.uidnum
+            return 'YES'
+    return 'NO'
 
 def preprocessing(users):
     updated = []
@@ -308,7 +299,8 @@ def save_user_info(users):
     fields = ['manager-%d'%(l) for l in range(1, maxlv+1)]
     fields.append('Present')
     write_results.write(fields, sorted_users, 'management tree sheet',
-                    expected=MNGR_EXPECTED, stats=MNGR_STATS, ttboss=MNGRS_WITH_TT_BOSS)
+                    expected=MNGR_EXPECTED, stats=MNGR_STATS, ttboss=MNGRS_WITH_TT_BOSS,
+                    external=REG_EXTERN)
 
 def generate_management_tree(users):
     max_levels = 0
@@ -584,9 +576,6 @@ def save_teams(teams):
     for k, v in teams.iteritems():
         mngr = None
         t = dict()
-        #for u in v:
-        #    if int(u['nsnApprovalLimit']) > int(mngr['nsnApprovalLimit']):
-        #        mngr = u
         for u in v:
             for o in v:
                 if o['nsnManagerAccountName'] == u['uid']:
@@ -618,29 +607,18 @@ def compare_users(users):
     return nid_diff
 
 if __name__ == '__main__':
-    '''
-    l = ldap.initialize(server)
-    try:
-        #l.start_tls_s()
-        res = l.simple_bind_s(dn, pw)
-        print 'result: ', res
-    except ldap.INVALID_CREDENTIALS:
-        print "Your username or password is incorrect."
-        sys.exit()
-    except ldap.LDAPError, e:
-        if type(e.message) == dict and e.message.has_key('desc'):
-            print e, e.message['desc']
-        else:
-            print e
-        sys.exit()
-    finally:
-    '''
+    global REG_USERS
+    global REG_EMPLOYEES
+    global REG_EXTERN
+    REG_USERS = read_regs()  # read all registration data from local csv file (default Form_data.csv)
+    if REG_USERS:
+        REG_EMPLOYEES = [u for u in REG_USERS if u.employment=='nsb']
+        REG_EXTERN = [u for u in REG_USERS if u.employment=='ext']
     l = ldap_init()
     if l:
         filt = '(&(uid=%s*) (nsnCity=hangzhou))'%('ab')
         attrs = ['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'displayName', 'employeeType',
                  'nsnTeamName', 'nsnApprovalLimit', 'nsnSiteCode']
-        #attrs = ['+']
         if non_sync:
             rids = []
             for fstch in range(ord('a'), ord('z')+1):
@@ -696,8 +674,6 @@ if __name__ == '__main__':
                 if len(resps) + len(exceptions) == len(rids):
                     print("all queries DONE!!!")
                     break
-                #print len(resps), len(rids)
-
                 for wildcard, rid in rids:
                     if wildcard in resps:
                         #print("already done %s"%(wildcard))
@@ -723,30 +699,6 @@ if __name__ == '__main__':
                         print("None res for %s"%(wildcard))
                 polls = polls + 1
             print('total number users: %d'%(len(users)))
-
-            '''
-            poll_num = 0
-            raw_res = (None, None)
-            print rid
-            users = []
-            while raw_res[0] is None and poll_num < 300:
-                print 'still polling, %d'%(poll_num)
-                raw_res = l.result(rid, 1)
-                poll_num = poll_num + 1
-                time.sleep(1)
-            res_num = 0
-            print raw_res[1]
-            users.append(raw_res[1][0])
-            while res_num < 1000:
-                raw_res = l.result(rid, 0)
-                if raw_res[0]:
-                    users.append(raw_res[1][0])
-                else:
-                    print 'empty result...'
-                res_num = res_num + 1
-            for _, u in users:
-                print u['sn'][0], u['uid'][0], u['uidNumber'][0]
-            '''
         else:
             exceptional = []
             users = []
@@ -773,7 +725,6 @@ if __name__ == '__main__':
                         except:
                             pass
                     if res:
-                        #print res[0][1].keys()
                         pass
             print('Hi, the following filters need further processing...')
             print(exceptional)

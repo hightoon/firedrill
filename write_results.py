@@ -2,12 +2,13 @@ import os.path
 import xlsxwriter
 from openpyxl import Workbook, load_workbook
 
-def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=None):
+def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=None, external=None):
     wb = xlsxwriter.Workbook('fd_mngm_tr.xlsx')
     ws = wb.add_worksheet(sn)
     bold = wb.add_format({'bold': 1})
     redbold = wb.add_format({'bold': 1, 'font_color': 'red'})
     greenbold = wb.add_format({'bold': 1, 'font_color': 'green'})
+    bluebold = wb.add_format({'bold': 1, 'font_color': 'blue'})
     row = 0 
     for col, f in enumerate(fields):
         ws.write(row, col, f, bold)
@@ -23,9 +24,13 @@ def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=
             pre4 = mgr4
         if mgr4 != pre4:
             if len(last['managers']) > 4:
+                try:
+                    stat = stats[pre4]
+                except KeyError:
+                    stat = 0
                 ws.write('D%d'%(row+1,), pre4, bold)
                 ws.write('E%d'%(row+1,), 'Expected No.: %d'%(expected[pre4],), bold)
-                ws.write('F%d'%(row+1,), 'Actual No.: %d'%(stats[pre4],), bold)
+                ws.write('F%d'%(row+1,), 'Actual No.: %d'%(stat,), bold)
                 ws.set_row(row, None, None, {'level': 4, 'hidden': True, 'collapsed': True})
                 row += 1
             pre4 = mgr4
@@ -33,9 +38,13 @@ def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=
             pre3 = mgr3
         if mgr3 != pre3:
             if len(last['managers']) > 3:
+                try:
+                    stat = stats[pre3]
+                except KeyError:
+                    stat = 0
                 ws.write('C%d'%(row+1,), pre3, bold)
                 ws.write('D%d'%(row+1,), 'Expected No.: %d'%(expected[pre3],), bold)
-                ws.write('E%d'%(row+1,), 'Actual No.: %d'%(stats[pre3],), bold)
+                ws.write('E%d'%(row+1,), 'Actual No.: %d'%(stat,), bold)
                 ws.set_row(row, None, None, {'level': 3, 'hidden': True, 'collapsed': True})
                 row += 1
             pre3 = mgr3
@@ -43,21 +52,29 @@ def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=
             pre2 = mgr2
         if mgr2 != pre2:
             if len(last['managers']) > 2:
+                try:
+                    stat = stats[pre2]
+                except KeyError:
+                    stat = 0
                 ws.write('B%d'%(row+1,), pre2, bold)
                 ws.write('C%d'%(row+1,), 'Expected No.: %d'%(expected[pre2],), bold)
-                ws.write('D%d'%(row+1,), 'Actual No.: %d'%(stats[pre2]), bold)
+                ws.write('D%d'%(row+1,), 'Actual No.: %d'%(stat,), bold)
                 ws.set_row(row, None, None, {'level': 2, 'hidden': True, 'collapsed': True})
                 row += 1
             pre2 = mgr2
         if pre1 is None:
             pre1 = mgr1
         if mgr1 != pre1:
+            try:
+                stat = stats[pre1]
+            except KeyError:
+                stat = 0
             if pre1 in ttboss:
-                ws.write('A%d'%(row+1,), pre1, greenbold)
+                ws.write('A%d'%(row+1,), pre1, bluebold)
             else:
                 ws.write('A%d'%(row+1,), pre1, bold)
             ws.write('B%d'%(row+1,), 'Expected No.: %d'%(expected[pre1],), bold)
-            ws.write('C%d'%(row+1,), 'Actual No.: %d'%(stats[pre1],), bold)
+            ws.write('C%d'%(row+1,), 'Actual No.: %d'%(stat,), bold)
             ws.set_row(row, None, None, {'level': 1, 'hidden': True, 'collapsed': True})
             row += 1
             pre1 = mgr1
@@ -69,9 +86,21 @@ def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=
                 ws.set_row(row, None, None, {'level': len(result['managers']), 'hidden': True, 'collapsed': True})
         row += 1
         last = result
+    try:
+        stat = stats[pre1]
+    except KeyError:
+        stat = 0
     ws.write('A%d'%(row+1,), pre1, bold)
     ws.write('B%d'%(row+1,), 'Expected No.: %d'%(expected[pre1],), bold)
-    ws.write('C%d'%(row+1,), 'Actual No.: %d'%(stats[pre1],), bold)
+    ws.write('C%d'%(row+1,), 'Actual No.: %d'%(stat,), bold)
+    ws.set_row(row, None, None, {'level': 1, 'hidden': True, 'collapsed': True})
+    row += 1
+    for v in external:
+        ws.write('A%d'%(row+1,), v.person.company)
+        ws.write('B%d'%(row+1,), v.nickname)
+        ws.set_row(row, None, None, {'level': 2, 'hidden': True, 'collapsed': True})
+        row += 1
+    ws.write('A%d'%(row+1,), 'Total Non-Employee Num.: %d'%(len(external),))
     ws.set_row(row, None, None, {'level': 1, 'hidden': True, 'collapsed': True})
     row += 1
     ws.write('A%d'%(row+1,), 'EXPECTED TOTAL: %d'%(len(results)), redbold)
