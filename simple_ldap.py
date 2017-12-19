@@ -1,3 +1,5 @@
+#--*-- encoding=utf-8 --*--
+
 import ldap
 import sys
 import time
@@ -67,7 +69,10 @@ def ldap_init():
     finally:
         return l
 
-ldap_client = ldap_init()
+try:
+    ldap_client = ldap_init()
+except Exception as e:
+    print 'ldap init failed: ', e
 
 def print_managers_by_uid(lc, uid):
     attrs = ['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity']
@@ -189,7 +194,7 @@ def get_user_by_part_uid(basestrs, found, attrs):
 def is_present(uidnum):
     global MATCHED
     for u in REG_EMPLOYEES:
-        if uidnum == u.person.uidnum:
+        if uidnum == u.person.uidnum and '诺基亚通信创新软件园' not in u.location:
             MATCHED[u.nickname] = u.person.uidnum
             return 'YES'
     return 'NO'
@@ -392,6 +397,7 @@ def remove_unique_top_mgr(userlist):
             if user['manager-1'] not in LOCAL_TOPS:
                 LOCAL_TOPS.append(user['manager-1'])
 
+# not used
 def save_user_as_groups(users):
     n2grps = {}
     n3grps = {}
@@ -607,14 +613,16 @@ def compare_users(users):
     return nid_diff
 
 if __name__ == '__main__':
-    global REG_USERS
-    global REG_EMPLOYEES
-    global REG_EXTERN
+    #global REG_USERS
+    #global REG_EMPLOYEES
+    #global REG_EXTERN
     REG_USERS = read_regs()  # read all registration data from local csv file (default Form_data.csv)
     if REG_USERS:
         REG_EMPLOYEES = [u for u in REG_USERS if u.employment=='nsb']
         REG_EXTERN = [u for u in REG_USERS if u.employment=='ext']
     l = ldap_init()
+    if l is None:
+        raise SystemExit
     if l:
         filt = '(&(uid=%s*) (nsnCity=hangzhou))'%('ab')
         attrs = ['uid', 'uidNumber', 'nsnManagerAccountName', 'nsnCity', 'street', 'displayName', 'employeeType',

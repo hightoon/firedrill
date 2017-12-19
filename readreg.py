@@ -1,5 +1,8 @@
+#-*- encoding=utf-8 -*-
+
 import sys
 import csv
+import re
 import RegistrationInfo
 from openpyxl import load_workbook
 
@@ -22,23 +25,38 @@ def read_employees(xlsx_file='tthc930.xlsx'):
     print(num_of_employees)
     return nsn_ids
 
+def in_valid_area(loc):
+    pass
+
 def read_regs(csvfile='Form_data.csv'):
+    nicknames = []
     users = []
     with open(csvfile, 'rb') as csvfile:
         reader = csv.reader(csvfile)
-        for row in reader:
+        for row in reversed(list(reader)):
             try:
                 int(row[0])
             except:
                 print 'skip the fields'
                 continue
+            nickname = row[9].decode('gbk').encode('utf-8')
+            location = row[4].decode('gbk').encode('utf-8')
+            if nickname in nicknames:
+                continue
+            nicknames.append(nickname)
             if 'employee' in row[1]:
-                print 'this is Employee, registered @ %s'%(row[6])
-                user = RegistrationInfo.RegistrationInfo('nsb', row[6], uidnum=row[3], wechat_nickname=row[8].decode('gbk').encode('utf-8'))
+                print 'this is Employee, registered @ %s'%(row[7])
+                user = RegistrationInfo.RegistrationInfo('nsb', row[7], uidnum=row[3], 
+                    wechat_nickname=nickname,
+                    location=location)
             else:
-                print 'this is visitor, registered @ %s'%(row[6])
-                user = RegistrationInfo.RegistrationInfo('ext', row[6], company=row[2], wechat_nickname=row[8].decode('gbk').encode('utf-8'))
-            users.append(user)
+                print 'this is visitor, registered @ %s'%(row[7])
+                user = RegistrationInfo.RegistrationInfo('ext', row[7], company=row[2],
+                    wechat_nickname=nickname,
+                    location=location)
+            if user.is_valid_location():
+                users.append(user)
+    users.reverse()
     return users
             #for cell in row:
             #    print cell.decode('gbk')

@@ -7,6 +7,7 @@ def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=
     ws = wb.add_worksheet(sn)
     bold = wb.add_format({'bold': 1})
     redbold = wb.add_format({'bold': 1, 'font_color': 'red'})
+    warn = wb.add_format({'bold': 1, 'font_color': 'orange'})
     greenbold = wb.add_format({'bold': 1, 'font_color': 'green'})
     bluebold = wb.add_format({'bold': 1, 'font_color': 'blue'})
     row = 0 
@@ -30,7 +31,10 @@ def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=
                     stat = 0
                 ws.write('D%d'%(row+1,), pre4, bold)
                 ws.write('E%d'%(row+1,), 'Expected No.: %d'%(expected[pre4],), bold)
-                ws.write('F%d'%(row+1,), 'Actual No.: %d'%(stat,), bold)
+                fmt = bold
+                if stat < expected[pre4]:
+                    fmt = warn
+                ws.write('F%d'%(row+1,), 'Actual No.: %d'%(stat,), fmt)
                 ws.set_row(row, None, None, {'level': 4, 'hidden': True, 'collapsed': True})
                 row += 1
             pre4 = mgr4
@@ -44,7 +48,10 @@ def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=
                     stat = 0
                 ws.write('C%d'%(row+1,), pre3, bold)
                 ws.write('D%d'%(row+1,), 'Expected No.: %d'%(expected[pre3],), bold)
-                ws.write('E%d'%(row+1,), 'Actual No.: %d'%(stat,), bold)
+                fmt = bold
+                if stat < expected[pre3]:
+                    fmt = warn
+                ws.write('E%d'%(row+1,), 'Actual No.: %d'%(stat,), fmt)
                 ws.set_row(row, None, None, {'level': 3, 'hidden': True, 'collapsed': True})
                 row += 1
             pre3 = mgr3
@@ -58,7 +65,10 @@ def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=
                     stat = 0
                 ws.write('B%d'%(row+1,), pre2, bold)
                 ws.write('C%d'%(row+1,), 'Expected No.: %d'%(expected[pre2],), bold)
-                ws.write('D%d'%(row+1,), 'Actual No.: %d'%(stat,), bold)
+                fmt = bold
+                if stat < expected[pre2]:
+                    fmt = warn
+                ws.write('D%d'%(row+1,), 'Actual No.: %d'%(stat,), fmt)
                 ws.set_row(row, None, None, {'level': 2, 'hidden': True, 'collapsed': True})
                 row += 1
             pre2 = mgr2
@@ -74,7 +84,10 @@ def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=
             else:
                 ws.write('A%d'%(row+1,), pre1, bold)
             ws.write('B%d'%(row+1,), 'Expected No.: %d'%(expected[pre1],), bold)
-            ws.write('C%d'%(row+1,), 'Actual No.: %d'%(stat,), bold)
+            fmt = bold
+            if stat < expected[pre1]:
+                fmt = warn
+            ws.write('C%d'%(row+1,), 'Actual No.: %d'%(stat,), fmt)
             ws.set_row(row, None, None, {'level': 1, 'hidden': True, 'collapsed': True})
             row += 1
             pre1 = mgr1
@@ -243,4 +256,4 @@ if __name__ == '__main__':
     fields = ['uid', 'uidNumber']
     results = [{'uid': 'haitchen', 'uidNumber': '61418924'},
                {'uid': 'haizzhang', 'uidNumber': '61418024'}]
-    write(fields, results) 
+    write(fields, results, 'testsheet') 
