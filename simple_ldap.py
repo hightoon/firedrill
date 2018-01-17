@@ -35,6 +35,8 @@ MNGR_STATS = {}
 MNGRS_WITH_TT_BOSS = []
 REG_USERS = None
 REG_EMPLOYEES = None
+REG_EMPLOYEES_INVALID_TIME = None
+REG_EMPLOYEES_INVALID_LOC = None
 REG_EXTERN = None
 MATCHED = {}
 
@@ -194,14 +196,24 @@ def get_user_by_part_uid(basestrs, found, attrs):
 def is_present(uidnum):
     global MATCHED
     for u in REG_EMPLOYEES:
-        if uidnum == u.person.uidnum and '诺基亚通信创新软件园' not in u.location:
+        if uidnum == u.person.uidnum:
             MATCHED[u.nickname] = u.person.uidnum
             return 'YES'
+    for u in REG_EMPLOYEES_INVALID_LOC:
+        if uidnum == u.person.uidnum:
+            MATCHED[u.nickname] = u.person.uidnum
+            return 'INVALID LOCATION'
+    for u in REG_EMPLOYEES_INVALID_TIME:
+        if uidnum == u.person.uidnum:
+            MATCHED[u.nickname] = u.person.uidnum
+            return 'INVALID REGISTRATION TIME'
     return 'NO'
 
 def preprocessing(users):
     updated = []
     for user in users:
+        if not user.has_key('nsnManagerAccountName'):
+            continue  # new comer? not take into account
         for k, v in user.iteritems():
             user[k] = v[0]
         updated.append(user)
@@ -303,9 +315,16 @@ def save_user_info(users):
     generate_mngr_stats(sorted_users)
     fields = ['manager-%d'%(l) for l in range(1, maxlv+1)]
     fields.append('Present')
+
+    error_regs = []
+    for reusr in REG_USERS:
+        if reusr.employment == 'nsb' and reusr.person.uidnum not in MATCHED.values():
+            error_regs.append(reusr)
+
     write_results.write(fields, sorted_users, 'management tree sheet',
                     expected=MNGR_EXPECTED, stats=MNGR_STATS, ttboss=MNGRS_WITH_TT_BOSS,
-                    external=REG_EXTERN)
+                    external=REG_EXTERN, erroregs=error_regs, total_valid_regs=len(MATCHED))
+    print 'writing result done, total matched: %d'%(len(MATCHED))
 
 def generate_management_tree(users):
     max_levels = 0
@@ -344,8 +363,11 @@ def generate_mngr_stats(users):
     '''
     for user in users:
         for i, m in enumerate(user['managers'][:-1]):
-            if i == 0 and m['displayName'] not in LOCAL_TOPS:
-                MNGR_EXPECTED.setdefault(m['displayName'], 0) # top manager always NOT in TT, so she's not expected
+            if i == 0:
+                if m['displayName'] not in LOCAL_TOPS:
+                    MNGR_EXPECTED.setdefault(m['displayName'], 0) # top manager always NOT in TT, so she's not expected
+                else:
+                    MNGR_EXPECTED.setdefault(m['displayName'], 0)
             else:
                 MNGR_EXPECTED.setdefault(m['displayName'], 1)
             MNGR_EXPECTED[m['displayName']] += 1
@@ -356,7 +378,7 @@ def generate_mngr_stats(users):
                     print m
                     MNGR_STATS.setdefault(m['displayName'], 0)
                 else:
-                    if m['Present'] == 'YES':
+                    if m['Present'] == 'YES' and (m['displayName'] not in MNGRS_WITH_TT_BOSS and m['displayName'] not in LOCAL_TOPS):
                         MNGR_STATS.setdefault(m['displayName'], 1) # check participatation of herself
                     else:
                         MNGR_STATS.setdefault(m['displayName'], 0)
@@ -618,7 +640,9 @@ if __name__ == '__main__':
     #global REG_EXTERN
     REG_USERS = read_regs()  # read all registration data from local csv file (default Form_data.csv)
     if REG_USERS:
-        REG_EMPLOYEES = [u for u in REG_USERS if u.employment=='nsb']
+        REG_EMPLOYEES = [u for u in REG_USERS if u.employment=='nsb' and u.is_valid_location() and u.is_valid_time()]
+        REG_EMPLOYEES_INVALID_TIME = [u for u in REG_USERS if u.employment=='nsb' and not u.is_valid_time()]
+        REG_EMPLOYEES_INVALID_LOC = [u for u in REG_USERS if u.employment=='nsb' and not u.is_valid_location()]
         REG_EXTERN = [u for u in REG_USERS if u.employment=='ext']
     l = ldap_init()
     if l is None:

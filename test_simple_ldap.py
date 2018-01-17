@@ -40,12 +40,13 @@ if __name__ == '__main__':
         test_get_user_by_uid('sberrahi')
         test_get_user_by_uid('dawchen')
         test_get_user_by_uid('xuechen')
+        test_get_user_by_uidnum('61446174', None)
     except:
         pass
-    test_remove_unique_top_mgr(
+    '''test_remove_unique_top_mgr(
         [{'managers': [{'displayName': 'haitong'}, {'displayName': 'zhang qi'}], 'manager-1': 'haitong', 'manager-2': 'zhang qi', 'manager-3':'', 'manager-4': '', 'manager-5': '', 'manager-6': ''},
          {'managers': [{'displayName': 'haitong'}, {'displayName': 'zhang yulong'}], 'manager-1': 'haitong', 'manager-2': 'zhang yulong', 'manager-3': '', 'manager-4': '', 'manager-5': '', 'manager-6': ''},
          {'managers': [{'displayName': 'mike wang'}, {'displayName': 'zhang qi'}, {'displayName': 'zhang xin'}], 'manager-1': 'mike wang', 'manager-2': 'zhang qi', 'manager-3': 'zhang xin', 'manager-4': '', 'manager-5': '', 'manager-6': ''},
          {'managers': [{'displayName': 'mike wang'}, {'displayName': 'zhang qi'}], 'manager-1': 'mike wang', 'manager-2': 'zhang qi', 'manager-3': '', 'manager-4': '', 'manager-5': '', 'manager-6': ''}
         ]
-    )
+    )'''

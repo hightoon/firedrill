@@ -2,10 +2,16 @@ import os.path
 import xlsxwriter
 from openpyxl import Workbook, load_workbook
 
-def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=None, external=None):
+import sys
+reload(sys)
+sys.setdefaultencoding("utf-8")
+
+def write(fields, results, sn, expected=None, stats=None, ttboss=None, 
+          uniqtops=None, external=None, erroregs=None, total_valid_regs=0):
     wb = xlsxwriter.Workbook('fd_mngm_tr.xlsx')
-    ws = wb.add_worksheet(sn)
+    wb.encoding = 'utf-8'
     bold = wb.add_format({'bold': 1})
+    ws = wb.add_worksheet(sn)
     redbold = wb.add_format({'bold': 1, 'font_color': 'red'})
     warn = wb.add_format({'bold': 1, 'font_color': 'orange'})
     greenbold = wb.add_format({'bold': 1, 'font_color': 'green'})
@@ -116,8 +122,29 @@ def write(fields, results, sn, expected=None, stats=None, ttboss=None, uniqtops=
     ws.write('A%d'%(row+1,), 'Total Non-Employee Num.: %d'%(len(external),))
     ws.set_row(row, None, None, {'level': 1, 'hidden': True, 'collapsed': True})
     row += 1
-    ws.write('A%d'%(row+1,), 'EXPECTED TOTAL: %d'%(len(results)), redbold)
+    ws.write('A%d'%(row+1,), 'Expected Total: %d'%(len(results)), redbold)
+    ws.write('B%d'%(row+1,), 'Total Valid Registrations: %d'%(total_valid_regs,), redbold)
     ws.set_row(row, None, None, {'collapsed': True})
+    row += 1
+    ws.write('A%d'%(row+1,), 'manager-1 in blue = she/he is not in TT but her/his manager in TT')
+
+    if erroregs is not None:
+        err_ws = wb.add_worksheet('abnormal registration')
+        err_row = 0
+        err_fields = ['employment type', 'registration info', 'wechat nickname']
+        for col, f in enumerate(err_fields):
+            err_ws.write(err_row, col, f, bold)
+        err_row += 1
+        reginfos = []
+        for reg in erroregs:
+            if reg.employment == 'nsb':
+                reginfos.append([reg.employment, reg.person.uidnum, reg.nickname])
+            else:
+                reginfos.append([reg.employment, reg.person.company, reg.nickname])
+        for reginfo in reginfos:
+            for col, v in enumerate(reginfo):
+                err_ws.write(err_row, col, v)
+            err_row += 1
     wb.close()
 
 

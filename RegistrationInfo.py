@@ -16,9 +16,11 @@ class RegistrationInfo(object):
 
     def __str__(self):
         if self.employment == 'nsb':
-            return 'employee ID: %s, Wechat NickName: %s, @%s'%(self.person.uidnum, self.nickname, self.location)
+            return 'employee ID: %s, Wechat NickName: %s, @%s, @%s'%(self.person.uidnum, self.nickname, 
+                self.regtime, self.location)
         else:
-            return 'company: %s, wechat nickname: %s, @%s'%(self.person.company, self.nickname, self.location)
+            return 'company: %s, wechat nickname: %s, @%s, @%s'%(self.person.company, self.nickname, 
+                self.regtime, self.location)
 
     def is_valid_location(self):
         ''' check if user was registered in required area by reading
@@ -29,9 +31,13 @@ class RegistrationInfo(object):
         except:
             print 'no loc info'
             return False
-        if lon < 120.172274 and lat > 30.188606:
+        #if (lon < 120.172274 and lon > 120.167409) and (lat > 30.188606 and lat < 30.189754):
+        if lon < 120.172274 and lon > 120.167409:
             return True 
         return False
+
+    def is_valid_time(self):
+        return '2017-12-26 10:00:00' < self.regtime < '2017-12-26 11:00:00'
 
 
 class Employee(object):
